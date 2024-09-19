@@ -1,0 +1,650 @@
+# Gaussian Process Function
+```{r}
+# generate data
+library(ggplot2)
+library(magrittr)
+library(tidyverse)
+gaussprocess <- function(from = 0,
+                         to = 1,
+                         K = function(s, t) {min(s, t)},
+                         start = NULL,
+                         m = n) {
+    t <- seq(from = from, to = to, length.out = m)
+    Sigma <- sapply(t, function(s1) {
+        sapply(t, function(s2) {
+            K(s1, s2)
+        })
+    })
+    path <- MASS::mvrnorm(mu = rep(0, times = m), Sigma = Sigma)
+    if (!is.null(start)) {
+        path <- path - path[1] + start  # Must always start at "start"
+    }
+    return(data.frame("t" = t, "xt" = path))
+}
+```
+# Generate Simulation Data
+```{r}
+# 
+N = 20
+n = 100
+t = seq(0,1,length=n)
+
+set.seed(1000)
+## Gaussian Process
+gaussian_data_generate = function(times = N) {
+    gaussian_data <- gaussprocess(K = function(s, t) {exp(-16 * (s - t) ^ 2)})
+    for(i in 1:(times-1)){
+        temp <- gaussprocess(K = function(s, t) {exp(-16 * (s - t) ^ 2)})[,2]
+        gaussian_data <- cbind(gaussian_data, temp)
+    }
+    return(gaussian_data[,-1])
+}
+
+gaussian_data = gaussian_data_generate(times = N)
+matplot(gaussian_data,type = "l")
+
+data_generate = function(n,N,t){
+  beta = t^3
+  x = c()
+  y = c()
+  for (i in 1:N) {
+    x_temp = exp(sin(t))+rnorm(n,0,0.1)
+    y_temp = beta*x_temp+gaussian_data[,i]*x_temp+rnorm(n,0,0.5)
+    x = cbind(x,x_temp)
+    y = cbind(y,y_temp)
+  }
+  return(list(x = x,y = y))
+}
+
+data = data_generate(n,N,t)
+x = data$x
+y = data$y
+matplot(t,y,type = "l")
+
+```
+
+
+# Estimate Model, REML-Based Backfitting Algorithm
+```{r}
+# kernel function
+ptm = proc.time()
+
+library(lava)
+# Gaussian Kernel
+kh_fun=function(tdiff,h){
+  u=tdiff/h
+  kh=1/((2*pi)^0.5)*exp(-(u^2)/2)/h
+  return(kh)
+}
+
+
+h = 0.015
+
+L = 0.8
+tfit = seq(0,1,length = n)
+
+sigma2.t =  c()
+bhatlist = vector("list",n)
+alphahat = c()
+for (j in 1:n) {
+  tt = tfit[j]
+  tdiff = tfit-tt
+  hi_tt = cbind(rep(1,n),tdiff)
+  
+  Xilist = vector("list",N)
+  Xmat = c()
+  for (i in 1:N) {
+    Xilist[[i]] = cbind(x[,i]*hi_tt[,1],x[,i]*hi_tt[,2])
+    Xmat = rbind(Xilist[[i]])
+  }
+  
+  # Initial Values of Variance Components
+  D = diag(c(1,1))
+  sigma2 = 1; Ini = diag(rep(1,n))
+  Ri = sigma2*Ini
+  
+  Khi = diag(kh_fun(tdiff,h))
+  
+  epsilon = 100
+  while (epsilon>L) {
+    Vilist = vector("list",N)
+    omigahilist = vector("list",N)
+    for (i in 1:N) {
+      Vilist[[i]] = Ri + Khi^0.5%*%Xilist[[i]]%*%D%*%t(Xilist[[i]])%*%Khi^0.5
+      omigahilist[[i]] = Khi^0.5%*%solve(Vilist[[i]])%*%Khi^0.5
+    }
+    
+    alphajhat.term1 = 0
+    alphajhat.term2 = 0
+    for (i in 1:N) {
+      alphajhat.term1 = alphajhat.term1 + t(Xilist[[i]]) %*% omigahilist[[i]] %*% Xilist[[i]]
+      alphajhat.term2 = alphajhat.term2 + t(Xilist[[i]]) %*% omigahilist[[i]] %*% y[,i]
+    }
+    alphajhat = solve(alphajhat.term1) %*% alphajhat.term2
+    
+    bjhat = c()
+    for (i in 1:N) {
+      bijhat = D %*% t(Xilist[[i]]) %*% omigahilist[[i]] %*% (y[,i]-Xilist[[i]]%*%alphajhat)
+      bjhat = cbind(bjhat,bijhat)
+    }
+    
+    # Estimating Variance Components
+    ehat = c()
+    Pvi_term = 0
+    for (i in 1:N) {
+      ehat_i = Khi^0.5 %*% (y[,i] - Xilist[[i]] %*% alphajhat - Xilist[[i]] %*% bjhat[,i])  
+      ehat = cbind(ehat,ehat_i)
+      Pvi_term = Pvi_term + t(Xilist[[i]]) %*% omigahilist[[i]] %*% Xilist[[i]]
+    }
+    
+    Pvilist = vector("list",N)
+    for (i in 1:N) {
+      Pvilist[[i]] = solve(Vilist[[i]])-solve(Vilist[[i]])%*%Khi^0.5%*%Xilist[[i]]%*%solve(Pvi_term)%*%t(Xilist[[i]])%*%Khi^0.5%*%solve(Vilist[[i]])
+    }
+  
+    sigma2_next = 0
+    D_next = 0
+    for (i in 1:N) {
+      sigma2_next = sigma2_next + t(ehat[,i]) %*% ehat[,i] + sigma2*(n-sigma2*tr(Pvilist[[i]]))
+      D_next = D_next + bjhat[,i]%*%t(bjhat[,i])+
+        (D-D%*%t(Xilist[[i]])%*%Khi^0.5%*%Pvilist[[i]]%*%Khi^0.5%*%Xilist[[i]]%*%D)
+    }
+    sigma2_next = (sigma2_next/(N*n))
+    D_next = (D_next/n)
+    
+    # Termination Criteria for Variance Component Estimation
+    numerator = sum(abs(as.vector(D_next)-as.vector(D)))
+    denominator = sum(abs(as.vector(D)))
+    
+    numerator = abs(norm(D_next,"2")-norm(D,"2"))
+    denominator = abs(norm(D,"2"))
+    
+    epsilon = numerator/denominator
+    D = (diag(diag(D_next)))
+    sigma2 = sigma2_next[1,1]
+  }
+  sigma2.t = c(sigma2.t,sigma2)
+  alphahat = cbind(alphahat, alphajhat)
+  bhatlist[[j]] = bjhat
+  print(j)
+}
+
+(proc.time()-ptm)/60
+```
+
+
+```{r}
+# End of Point Estimation Procedure; Extract Estimated Parameters
+betahat = alphahat[1,]
+vihatlist = c()
+for (i in 1:n) {
+  vihatlist = rbind(vihatlist,bhatlist[[i]][1,])
+}
+yfit = c()
+for (i in 1:N) {
+  yfit = cbind(yfit,x[,i]*betahat + x[,i]*vihatlist[,i])
+}
+
+
+matplot(t,y,type = "l",ylim = c(-5.5,7),lwd = 1)
+for (i in 1:N) {
+  lines(tfit,yfit[,i],type = "l",col = "red", lwd = 1.5)
+}
+
+
+i = 1
+plot(t,y[,i],type = "l",ylim = c(-8,8))
+lines(tfit,yfit[,i],type = "l",col = "red", lwd = 1.5)
+```
+# Extract Parameters - Covariance Matrix
+```{r}
+# Calculate Matrix Form of r(s, t)
+r2mat = abs(cov(t(vihatlist)))
+```
+
+# Randomly Generate a New Curve
+```{r}
+set.seed(2)
+library(MASS)
+data_new = data_generate(n,N=1,t)
+x_new = data_new$x
+y_new = data_new$y
+tao1 = 30
+tao2 = 70
+delta1 = 5
+delta2 = 10
+y_new[(tao1+1):(tao2)] = y_new[(tao1+1):(tao2)]+ x_new[(tao1+1):(tao2)]*delta1
+y_new[(tao2+1):n] = y_new[(tao2+1):n]+ x_new[(tao2+1):n]*delta2
+plot(y_new,type = "l")
+```
+
+# Calculate the covariance matrix, transform the data of t1 to tm, and compute the statistics.
+```{r}
+Statistic.vcm = c()
+
+for (m in 1:n) {
+
+  xm = x_new[1:m,]
+  tm = t[1:m]
+  ym = y_new[1:m,]-xm*betahat[1:m]
+
+  Rm = diag(sigma2.t[1:m])
+  if (m == 1) {
+    SIGMA_m = xm *r2mat[1:m,1:m] * xm + sigma2.t[1:m]
+  }else{
+    SIGMA_m = diag(xm) %*% diag(diag(r2mat[1:m,1:m])) %*% t(diag(xm)) +Rm
+  }
+
+  xm_tilde = ginv(SIGMA_m^0.5) %*% xm
+  ym_tilde = ginv(SIGMA_m^0.5) %*% ym
+  
+  lambda = 0.8
+  wjlist = c()
+  deltahat = c()
+  for (j in 1:m) {
+    wj = (1-lambda)^(m-j)
+    wjlist = c(wjlist,wj)
+    deltahat = c(deltahat, sum(xm_tilde[1:j]*ym_tilde[1:j]*wj)/sum(xm_tilde[1:j]*xm_tilde[1:j]*wj))
+  }
+  ym_tilde.fit = xm_tilde * deltahat
+
+  RSS0 = t(ym_tilde)  %*% diag(wjlist) %*% (ym_tilde)
+  RSS1 = t(ym_tilde-ym_tilde.fit) %*% diag(wjlist)  %*% (ym_tilde-ym_tilde.fit)
+  temp = (RSS0-RSS1)
+  Statistic.vcm = c(Statistic.vcm,temp)
+}
+plot(Statistic.vcm,type = "o",cex=0.5)
+```
+
+# Recursive computation of statistic
+```{r}
+Hm = 0
+Hlist = c()
+for (mm in 1:n) {
+  xm = x_new[1:mm,]
+  tm = t[1:mm]
+  ym = y_new[1:mm,]-xm*betahat[1:mm]
+
+  Rm = diag(sigma2.t[1:mm])
+  if (mm == 1) {
+    SIGMA_m = xm *r2mat[1:mm,1:mm] * xm + sigma2.t[1:mm]
+  }else{
+    SIGMA_m = diag(xm) %*% diag(diag(r2mat[1:mm,1:mm])) %*% t(diag(xm)) +Rm
+  }
+
+  xm_tilde = ginv(SIGMA_m^0.5) %*% xm
+  ym_tilde = ginv(SIGMA_m^0.5) %*% ym
+  
+  w = 1-lambda
+  wjlist = c()
+  deltahat = c()
+  for (j in 1:mm) {
+    wj = (1-lambda)^(mm-j)
+    wjlist = c(wjlist,wj)
+    deltahat = c(deltahat, sum(xm_tilde[1:j]*ym_tilde[1:j]*wj)/sum(xm_tilde[1:j]*xm_tilde[1:j]*wj))
+  }
+  
+  Hm.next = w*Hm-(xm_tilde[mm]%*%deltahat[mm])^2+2*ym_tilde[mm]*t(xm_tilde[mm])%*%deltahat[mm]
+  Hm = Hm.next
+  Hlist = c(Hlist,Hm)
+}
+plot(Hlist,type = "o",cex=0.5)
+
+```
+# Expectation of the statistic
+```{r}
+EH = 0
+EHlist = c()
+for (mm in 1:n) {
+  xm = x_new[1:mm,]
+  tm = t[1:mm]
+  ym = y_new[1:mm,]-xm*betahat[1:mm]
+
+  Rm = diag(sigma2.t[1:mm])
+  if (mm == 1) {
+    SIGMA_m = xm *r2mat[1:mm,1:mm] * xm + sigma2.t[1:mm]
+  }else{
+    SIGMA_m = diag(xm) %*% diag(diag(r2mat[1:mm,1:mm])) %*% t(diag(xm)) +Rm
+  }
+
+  xm_tilde = ginv(SIGMA_m^0.5) %*% xm
+  ym_tilde = ginv(SIGMA_m^0.5) %*% ym
+  
+  w = 1-lambda
+  wjlist = c()
+  for (j in 1:mm) {
+    wj = (1-lambda)^(mm-j)
+    wjlist = c(wjlist,wj)
+  }
+
+  if (mm == 1) {
+    Gmm = solve(xm_tilde[mm]%*%t(xm_tilde[mm]))
+  }else{
+    Gmm = solve(w*solve(Gm)+xm_tilde[mm]%*%t(xm_tilde[mm]))
+  }
+  # Gmm = solve(sum(xm_tilde*(xm_tilde)*wjlist[1:mm]))
+  
+  term1 = w*EH
+  term2 = 0
+  for (j in 1:mm) {
+    term2 = term2 + wjlist[j]^2*(t(xm_tilde[mm])%*%Gmm%*%xm_tilde[j])^2
+  }
+  term3 = 2*t(xm_tilde[mm])%*%Gmm%*%xm_tilde[mm]
+  
+  EH.next = term1-term2+term3
+  EH = EH.next
+  Gm = Gmm
+  EHlist = c(EHlist,EH)
+}
+plot(EHlist,type = "o",cex=0.5)
+```
+
+# Recursive formula for the variance of the statistic E_UUH
+```{r}
+Gm = 0 
+E2UHm = 0 
+E2UHmlist = c()
+E2UHmlist = c(E2UHmlist,E2UHm)
+epsilon4 = 3
+for (mm in 2:n) {
+  xm = x_new[1:mm,]
+  tm = t[1:mm]
+  ym = y_new[1:mm,]-xm*betahat[1:mm]
+
+  Rm = diag(sigma2.t[1:mm])
+  if (mm == 1) {
+    SIGMA_m = xm *r2mat[1:mm,1:mm] * xm + sigma2.t[1:mm]
+  }else{
+    SIGMA_m = diag(xm) %*% diag(diag(r2mat[1:mm,1:mm])) %*% t(diag(xm)) +Rm
+  }
+
+  xm_tilde = ginv(SIGMA_m^0.5) %*% xm
+  ym_tilde = ginv(SIGMA_m^0.5) %*% ym
+  
+  w = 1-lambda
+  m = mm-1
+  # Gm
+  if (m == 1) {
+    Gmm = solve(xm_tilde[m]%*%t(xm_tilde[m]))
+  }else{
+    Gmm = solve(w*solve(Gm)+xm_tilde[m]%*%t(xm_tilde[m]))
+  }
+  Gm = Gmm
+  # term1
+  term1 = w * E2UHm
+  
+  # term2
+  # term2.1
+  term2.1 = 0
+  for (j in 1:m) {
+    wj = w^(m-j)
+    qmj = t(xm_tilde[m])%*%Gm%*%xm_tilde[j]
+    term2.1 = term2.1 + wj^4*xm_tilde[j]%*%t(xm_tilde[j])%*%qmj^2*epsilon4
+  }
+  # term2.2
+  m_c = c(1:m)
+  term2.2 = 0
+  term2.3 = 0
+  if (m == 1) {
+    term2.2 = 0
+    term2.3 = 0
+  }else{
+    for (j in m_c) {
+      qmj = t(xm_tilde[m]) %*% Gm %*% xm_tilde[j]
+      wj = w^(m-j)
+      for (i in m_c[-j]) {
+        wi = w^(m-i)
+        qmi = t(xm_tilde[m]) %*% Gm %*% xm_tilde[i]
+        term2.2 = term2.2 + wj^2 * wi^2 * xm_tilde[j] %*% t(xm_tilde[j]) * qmi^2
+        term2.3 = term2.3 + wj^2 * wi^2 * xm_tilde[j] %*% t(xm_tilde[i]) * qmi * qmj
+      }
+    }
+  }
+  term2 = term2.1 + term2.2 + term2.3
+  # term3
+  term3.1 = 0
+  term3.2 = 0
+  term3.3 = 0
+  Pm_1 = 0
+  if (m == 1) {
+    term3.1 = 0
+    term3.2 = 0
+    term3.3 = 0
+    Pm_1 = 0
+  }else{
+    for (j in 1:(m-1)) {
+      wj = w^(m-j)
+      qmj = t(xm_tilde[m]) %*% Gm %*% xm_tilde[j]
+      term3.1 = term3.1+w^2*wj^2*xm_tilde[j]%*%qmj%*%xm_tilde[j]
+      Pm_1 = Pm_1 + wj^2*xm_tilde[j]%*%t(xm_tilde[j])
+    }
+    term3.2 = w^2*t(xm_tilde[m])%*%Gm%*%xm_tilde[m]%*%Pm_1
+    term3.3 = w^2*(xm_tilde[m])%*%t(xm_tilde[m])%*%Gm%*%Pm_1
+  }
+  term3.4 = xm_tilde[m]%*%t(xm_tilde)[m]*Gm%*% xm_tilde[m]%*%t(xm_tilde[m])*epsilon4
+  term3 = 2*(term3.1 + term3.2 + term3.3 + term3.4)
+  # term4
+  if (m == 1) {
+    term4.1 = 0
+  }else{
+    term4.1 = w*EHlist[m-1]
+  }
+  term4.2 = 0
+  for (j in 1:(m)) {
+    wj = w^(m-j)
+    qmj = t(xm_tilde[m]) %*% Gm %*% xm_tilde[j]
+    term4.2 = term4.2+wj^2*qmj^2
+  }
+  term4.3 = 2*Gm%*%(xm_tilde[m])
+  term4 = term4.1+term4.2+term4.3
+  
+  E2UHmm = w^2*(term1-term2+term3) + xm_tilde[mm]%*%xm_tilde[mm]*term4
+  E2UHm = E2UHmm
+  E2UHmlist = c(E2UHmlist,E2UHm)
+}
+E2UHmlist
+plot(E2UHmlist,type = "o",cex=0.5)
+```
+# Recursive formula for the covariance between A and B.
+```{r}
+cov_AB = c()
+Gm = 0
+for (mm in 1:n) {
+  xm = x_new[1:mm,]
+  tm = t[1:mm]
+
+  Rm = diag(sigma2.t[1:mm])
+  if (mm == 1) {
+    SIGMA_m = xm *r2mat[1:mm,1:mm] * xm + sigma2.t[1:mm]
+  }else{
+    SIGMA_m = diag(xm) %*% diag(diag(r2mat[1:mm,1:mm])) %*% t(diag(xm)) +Rm
+  }
+
+  xm_tilde = ginv(SIGMA_m^0.5) %*% xm
+  
+  if (mm == 1) {
+    Gmm = solve(xm_tilde[mm]%*%t(xm_tilde[mm]))
+    EHm = 0
+  }else{
+    Gmm = solve(w*solve(Gm)+xm_tilde[mm]%*%t(xm_tilde[mm]))
+    EHm = EHlist[mm-1]
+  }
+  w = 1-lambda
+  term1 = w*t(xm_tilde[mm])%*%Gmm*E2UHmlist[mm]%*%Gmm%*%xm_tilde[mm]
+  
+  term2.1 = 0
+  for (j in 1:mm) {
+    wj = w^(mm-j)
+    qmj = t(xm_tilde[mm]) %*% Gmm %*% xm_tilde[j]
+    term2.1 = term2.1 + wj^2*qmj^2
+  }
+  
+  term2 = w*term2.1*EHm
+  
+  cov_AB = c(cov_AB,term1-term2)
+  Gm = Gmm
+}
+plot(cov_AB,type = "o",cex=0.5)
+```
+# varB
+```{r}
+Gm = 0
+varB = c()
+w = 1-lambda
+for (mm in 1:n) {
+  xm = x_new[1:mm,]
+  tm = t[1:mm]
+
+  Rm = diag(sigma2.t[1:mm])
+  if (mm == 1) {
+    SIGMA_m = xm *r2mat[1:mm,1:mm] * xm + sigma2.t[1:mm]
+  }else{
+    SIGMA_m = diag(xm) %*% diag(diag(r2mat[1:mm,1:mm])) %*% t(diag(xm)) +Rm
+  }
+  
+  xm_tilde = ginv(SIGMA_m^0.5) %*% xm
+  
+  if (mm == 1) {
+    Gmm = solve(xm_tilde[mm]%*%t(xm_tilde[mm]))
+  }else{
+    Gmm = solve(w*solve(Gm)+xm_tilde[mm]%*%t(xm_tilde[mm]))
+  }
+  
+  
+  term1 = 0
+  for (j in 1:mm) {
+    wj = w^(mm-j)
+    qmj = t(xm_tilde[mm]) %*% Gmm %*% xm_tilde[j]
+    term1 = term1 + wj^4*qmj^4*(epsilon4-1)
+  }
+  
+  m_c = c(1:mm)
+  term2 = 0
+  if (mm == 1) {
+    term2 = 0
+  }else{
+    for (j in m_c) {
+      wj = w^(mm-j)
+      qmj = t(xm_tilde[mm]) %*% Gmm %*% xm_tilde[j]
+      for (i in m_c[-j]) {
+        wi = w^(mm-i)
+        qmi = t(xm_tilde[mm]) %*% Gmm %*% xm_tilde[i]
+        term2 = term2 + wj^2 * wi^2 * qmi^2 * qmj^2
+      }
+    }
+  }
+  varB = c(varB,term1+term2)
+  Gm = Gmm
+}
+plot(varB,type = "o",cex=0.5)
+```
+# varC
+```{r}
+Gm = 0
+varC = c()
+w = 1-lambda
+for (mm in 1:n) {
+  xm = x_new[1:mm,]
+  tm = t[1:mm]
+
+  Rm = diag(sigma2.t[1:mm])
+  if (mm == 1) {
+    SIGMA_m = xm *r2mat[1:mm,1:mm] * xm + sigma2.t[1:mm]
+  }else{
+    SIGMA_m = diag(xm) %*% diag(diag(r2mat[1:mm,1:mm])) %*% t(diag(xm)) +Rm
+  }
+  
+  xm_tilde = ginv(SIGMA_m^0.5) %*% xm
+  
+  if (mm == 1) {
+    Gmm = solve(xm_tilde[mm]%*%t(xm_tilde[mm]))
+  }else{
+    Gmm = solve(w*solve(Gm)+xm_tilde[mm]%*%t(xm_tilde[mm]))
+  }
+  
+  
+  term1 = 0
+  m = mm-1
+  if (m == 0) {
+    term1 = 0
+  }else{
+    for (j in 1:m) {
+      wj = w^(m-j)
+      qmj = t(xm_tilde[mm]) %*% Gmm %*% xm_tilde[j]
+      term1 = term1 + 4*w^2*wj^2*qmj^2
+    }
+  }
+  term2 = 4*(t(xm_tilde[mm]) %*% Gmm %*% xm_tilde[mm])^2*(epsilon4-1)
+  
+  varC = c(varC,term1+term2)
+  Gm = Gmm
+}
+plot(varC,type = "o",cex=0.5)
+```
+
+# cov_BC
+```{r}
+Gm = 0
+cov_BC = c()
+w = 1-lambda
+for (mm in 1:n) {
+  xm = x_new[1:mm,]
+  tm = t[1:mm]
+
+
+  Rm = diag(sigma2.t[1:mm])
+  if (mm == 1) {
+    SIGMA_m = xm *r2mat[1:mm,1:mm] * xm + sigma2.t[1:mm]
+  }else{
+    SIGMA_m = diag(xm) %*% diag(diag(r2mat[1:mm,1:mm])) %*% t(diag(xm)) +Rm
+  }
+  
+  xm_tilde = ginv(SIGMA_m^0.5) %*% xm
+  
+  if (mm == 1) {
+    Gmm = solve(xm_tilde[mm]%*%t(xm_tilde[mm]))
+  }else{
+    Gmm = solve(w*solve(Gm)+xm_tilde[mm]%*%t(xm_tilde[mm]))
+  }
+  
+  
+  term1 = (t(xm_tilde[mm]) %*% Gmm %*% xm_tilde[mm])^3*(epsilon4-1)
+  
+  term2 = 0
+  m = mm-1
+  if (m == 0) {
+    term2 = 0
+  }else{
+    for (j in 1:m) {
+      wj = w^(m-j)
+      qmj = t(xm_tilde[mm]) %*% Gmm %*% xm_tilde[j]
+      term2 = term2 + 2*w^2*(t(xm_tilde[mm]) %*% Gmm %*% xm_tilde[m])*wj^2*qmj^2
+    }
+  }
+  
+  cov_BC = c(cov_BC,2*(term1+term2))
+  Gm = Gmm
+}
+plot(cov_BC,type = "o",cex=0.5)
+```
+
+# Vm
+```{r}
+cov_AC = 0
+Vmlist = c()
+Vm = 0
+for (j in 1:mm) {
+  Vm_next = w^2*Vm+varB[j]+varC[j]-2*cov_AB[j]+2*cov_AC-2*cov_BC[j]
+  Vm = Vm_next
+  Vmlist = c(Vmlist,Vm)
+}
+plot(Vmlist,type = "o",cex=0.5)
+```
+# Calculation of the standardized statistic
+```{r}
+HHlist = (Hlist-EHlist)/Vmlist^0.5
+plot(HHlist[2:100],type = "o",cex=0.5)
+plot(Hlist,type = "o",cex=0.5)
+```
+
+
