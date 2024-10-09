@@ -1,0 +1,146 @@
+<!-- library -->
+```{r}
+library(openxlsx)
+library(reshape2)
+library(ggplot2)
+library(openxlsx)
+library(ggbump)
+library(ggpubr)
+theme_set(theme_bw())
+```
+<!-- IC data -->
+```{r}
+load("busbarWarping.RData");load("environmentWarping.RData");load("yeildWarping.RData")
+dataWarping = c()
+for (i in 1:5) {
+  dataWarping = rbind(dataWarping,cbind(busbarWarping[[i]]$day,busbarWarping[[i]]$time,environmentWarping[[i]]$value,yeildWarping[[i]]$yeild,busbarWarping[[i]]$value))
+}
+dimnames(dataWarping)[[2]] = c("day","time","env","yei","bus")
+
+dataWarping[,5] = scale(dataWarping[,5],center = F,scale = F)
+dataWarping[,3]= scale(dataWarping[,3],center = F,scale = F)
+dataWarping[,2]= (dataWarping[,2]-8)/12
+dataWarping = as.data.frame(dataWarping); colnames(dataWarping) = c("day","time","env","yei","bus")
+
+time = dataWarping$time
+days = unique(dataWarping$day)
+temperature = dataWarping$bus
+N = length(days)
+n = nrow(dataWarping)
+
+indexlist = vector("list",N)
+for (i in 1:N) {
+  indexlist[[i]] = which(dataWarping$day %in% days[i])
+}
+```
+
+```{r}
+day1 = data.frame(t = dataWarping$time[indexlist[[1]]],
+                  id = 1:length(indexlist[[1]]),
+                  x = dataWarping$env[indexlist[[1]]],
+                  y = dataWarping$bus[indexlist[[1]]]
+                  )
+day2 = data.frame(t = dataWarping$time[indexlist[[3]]],
+                  id = 1:length(indexlist[[3]]),
+                  x = dataWarping$env[indexlist[[3]]],
+                  y = dataWarping$bus[indexlist[[3]]]
+                  )
+day3 = data.frame(t = dataWarping$time[indexlist[[4]]],
+                  id = 1:length(indexlist[[4]]),
+                  x = dataWarping$env[indexlist[[4]]],
+                  y = dataWarping$bus[indexlist[[4]]]
+                  )
+```
+
+<!-- OC data -->
+```{r}
+load("envOC.RData");load("busbarOC.RData")
+OCwarping = busbar.OCwarping
+OCwarping$envlue = env.OCwarping$envvalue
+days = unique(OCwarping$day)
+
+indexlist = vector("list",2)
+for (i in 1:2) {
+  indexlist[[i]] = which(OCwarping$day %in% days[i])
+}
+
+day5 = data.frame(t = OCwarping$time[indexlist[[1]]],
+                  id = 1:length(indexlist[[1]]),
+                  x = OCwarping$envlue[indexlist[[1]]]+8,
+                  y = OCwarping$busbarvalue[indexlist[[1]]]
+                  )
+day6 = data.frame(t = OCwarping$time[indexlist[[2]]],
+                  id = 1:length(indexlist[[2]]),
+                  x = OCwarping$envlue[indexlist[[2]]]+5,
+                  y = OCwarping$busbarvalue[indexlist[[2]]]
+                  )
+
+```
+
+```{r}
+library(ggplot2)
+theme_set(theme_bw())
+library(ggplot2)
+theme_set(theme_bw())
+
+p0 = ggplot(day1, aes(x = id)) +
+  geom_line(aes(y = x, color = 'x'), lwd=0.5,linetype = "dashed") +
+  geom_line(aes(y = y, color = 'y'), lwd=0.5,linetype = "solid") +
+  ylim(10,25)+
+  scale_color_manual('',values=c('red', 'goldenrod1'),labels=c("envrionment temperature","busbar temperature")) +
+  labs(title = "", x = 'Time point', y ="Temperature(℃)" )+
+  theme(plot.title = element_text(size = 10,hjust = 0.5))+
+  theme(legend.position = c(0.35,0.85))+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(text = element_text(size = 10, family="sans",face = "bold",colour = "black")) 
+p0
+
+p1 = ggplot(day2, aes(x = id)) +
+  geom_line(aes(y = x, color = 'x'), lwd= 0.5,linetype = "dashed") +
+  geom_line(aes(y = y, color = 'y'), lwd= 0.5) +
+  ylim(10,25)+
+  scale_color_manual('',values=c('red', 'goldenrod1'),labels=c("envrionment temperature","busbar temperature")) +
+  labs(title = "", x = 'Time point', y ="Temperature(℃)" )+
+  theme(plot.title = element_text(size = 10,hjust = 0.5))+ 
+  theme(legend.position = c(0.35,0.85))+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(text = element_text(size = 10, family="sans",face = "bold",colour = "black")) 
+p1
+
+p2 = ggplot(day3, aes(x = id)) +
+  geom_line(aes(y = x, color = 'x'), lwd=0.5,linetype = "dashed") +
+  geom_line(aes(y = y, color = 'y'), lwd=0.5) +
+  ylim(10,25)+
+  scale_color_manual('',values=c('red', 'goldenrod1'),labels=c("envrionment temperature","busbar temperature")) +
+  labs(title = "", x = 'Time point', y ="Temperature(℃)" )+
+  theme(plot.title = element_text(size = 10,hjust = 0.5))+ 
+  theme(legend.position = c(0.35,0.85))+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(text = element_text(size = 10, family="sans",face = "bold",colour = "black")) 
+p2
+
+
+p5 = ggplot(day5, aes(x = id)) +
+  geom_line(aes(y = x, color = 'x'), lwd=0.5,linetype = "dashed") +
+  geom_line(aes(y = y, color = 'y'), lwd=0.5,linetype = "solid") +
+  ylim(15,60)+
+  scale_color_manual('',values=c('red', 'goldenrod1'),labels=c("envrionment temperature","busbar temperature")) +
+  labs(title = "", x = 'Time point', y ="Temperature(℃)" )+
+  theme(plot.title = element_text(size = 10,hjust = 0.5))+ 
+  theme(legend.position = c(0.65,0.45))+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(text = element_text(size = 10, family="sans",face = "bold",colour = "black")) 
+p5
+
+p6 = ggplot(day6, aes(x = id)) +
+  geom_line(aes(y = x, color = 'x'), lwd= 0.5,linetype = "dashed") +
+  geom_line(aes(y = y, color = 'y'), lwd= 0.5) +
+  ylim(15,60)+
+  scale_color_manual('',values=c('red', 'goldenrod1'),labels=c("envrionment temperature","busbar temperature")) +
+  labs(title = "", x = 'Time point', y ="Temperature(℃)" )+
+  theme(plot.title = element_text(size = 10,hjust = 0.5))+ 
+  theme(legend.position = c(0.65,0.45))+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(text = element_text(size = 10, family="sans",face = "bold",colour = "black"))
+p6
+```

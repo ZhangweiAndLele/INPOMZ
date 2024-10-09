@@ -1,0 +1,393 @@
+<!-- # 读取数据 -->
+```{r}
+load("model1_phase1_ICdata.RData")
+# 长数据
+N = length(model1.icdata$tlist)
+dataWarping = c()
+for (i in 1:N) {
+  dataWarping = rbind(dataWarping,
+                      cbind(model1.icdata$dayslist[[i]],
+                            model1.icdata$tlist[[i]],
+                            model1.icdata$xlist[[i]],
+                            model1.icdata$ylist[[i]]))
+}
+dimnames(dataWarping)[[2]] = c("day","time","x","y")
+dataWarping = as.data.frame(dataWarping)
+dataWarping$index = (1:nrow(dataWarping))
+
+time = dataWarping$time
+days = unique(dataWarping$day)
+y = dataWarping$y
+x = dataWarping$x
+n = nrow(dataWarping)
+```
+<!-- # 拟合变系数的混合效应模型,方差未知的情况，使用LME() -->
+```{r}
+# X中包含X.gaussian,Z为block
+# mod estimate
+# X
+X.fixed = cbind(1,time)
+dimnames(X.fixed)[[2]] = NULL
+# Z.overall
+K = 10
+knots = quantile(unique(time),seq(0,1,length = K+2))[-c(1,K+2)]
+Z.overall <- outer(time, knots, "-")
+Z.overall <- Z.overall*(Z.overall > 0)
+dimnames(Z.overall)[[2]] = NULL
+
+X.gaussian = Z.overall
+X = cbind(X.fixed,X.gaussian)*x
+
+Z.subject = X 
+dummy <- as.factor(dataWarping$day)
+library(nlme)
+mod.lme <- lme(y~-1+X, random=list(dummy=pdIdent(~Z.subject-1)))
+summary(mod.lme)
+
+# 每个子Z.block 对应的id
+indexlist = vector("list",N)
+for (i in 1:N) {
+  indexlist[[i]] = which(dataWarping$day %in% days[i])
+}
+
+# parameters hat
+beta <- fixef(mod.lme)
+u <- ranef(mod.lme)
+sig.sq <- mod.lme$sigma^2
+
+# fit value
+i = 1
+f.fixed = X[indexlist[[i]],] %*% t(t(beta))
+fv.fitted = f.fixed + Z.subject[indexlist[[i]],] %*% t(u[i,])
+plot(dataWarping$time[indexlist[[i]]],y[indexlist[[i]]],type = 'l',col="black",lwd=1)
+lines(fv.fitted,col = "red")
+
+f.fixed = X %*% t(t(beta))
+fv = cbind(dataWarping$day,dataWarping$time,f.fixed,fitted(mod.lme))
+dimnames(fv)[[2]] = c("day","time","f.fixed","fv")
+fv = as.data.frame(fv)
+
+# fv = fitted(mod.lme)
+plot(fv$time[indexlist[[1]]],fv$f.fixed[indexlist[[1]]],type = 'l',col="red",lwd=1,ylim = c(-5,5))
+for (i in 1:1) {
+  lines(fv$time[indexlist[[i]]],fv$fv[indexlist[[i]]],type = 'o',col="red",lwd=1,cex = 0.5)
+  lines(fv$time[indexlist[[i]]],y[indexlist[[i]]],type = 'l',col="black",lwd=1)
+}
+
+# uhat的协方差矩阵D
+D = getVarCov(mod.lme)
+```
+<!-- 利用估计的模型，计算固定效应系数函数、随机效应协方差函数，以及误差项的方差 
+time：时间间隔为最小间隔，为了在phase II 后续能够快速提取信息-->
+```{r}
+# 时间time，设定间隔为0.001
+time = seq(0,1000,by = 1)
+
+# X:固定效应的系数函数的模型矩阵
+X.fixed = cbind(1,time)
+dimnames(X.fixed)[[2]] = NULL
+# Z.overall
+K = 10
+knots = quantile(unique(time),seq(0,1,length = K+2))[-c(1,K+2)]
+Z.overall <- outer(time, knots, "-")
+Z.overall <- Z.overall*(Z.overall > 0)
+dimnames(Z.overall)[[2]] = NULL
+
+X.gaussian = Z.overall
+X = cbind(X.fixed,X.gaussian)
+Z = X
+# 固定效应的系数函数
+coef.fixed = X %*% fixef(mod.lme)
+plot(coef.fixed,cex = 0.5)
+
+# 随机效应系数函数的协方差函数矩阵 r(s,t),r.mat
+r.mat = Z %*% getVarCov(mod.lme) %*% t(Z)
+```
+
+<!-- 
+phase II :
+-->
+```{r}
+epsilon4 = 3; h = 0.1; lambda = 0.1
+source("E:\\zhangwei\\Rprogram\\In profile monitoring\\basic funcitons for 1 covariate with LPK and ewma.R")
+source("E:\\zhangwei\\Rprogram\\In profile monitoring\\basic functions for data generate.R")
+```
+
+<!-- # 偏移函数以及统计量和方差的计算 -->
+```{r}
+# data
+datalist = ICdata.model1(rate = 1,N = 1,tc.end = 10) 
+# 独立变换
+data.tilde = tildefunc(datalist,coef.fixed,r.mat,sig.sq)
+
+x.tilde = data.tilde$x.tilde
+y.tilde = data.tilde$y.tilde
+acf(y.tilde); acf(y)
+y.tilde = as.numeric(y.tilde)
+t = data.tilde$t
+ni = length(y.tilde)
+
+# 估计t时刻的偏移函数delta
+delta.m = delta.func(t,x.tilde,y.tilde)
+# 拟合效果
+y.tilde.fit = x.tilde*delta.m
+plot(y.tilde,cex = 0.5);lines(as.numeric(y.tilde.fit),col="red")
+
+# 统计量的常规计算
+Hm = Hmfunc(y.tilde,y.tilde.fit)
+
+# 统计量的迭代计算
+Hmstat = HmstatFunc(t,x.tilde,y.tilde)
+Hmlist = Hmstat$Hmlist
+plot(unlist(Hmlist),type = "o",cex = 0.3)
+
+# 统计量的期望
+Gmlist = Hmstat$Gmlist
+EHlist = EHfunc(t,x.tilde,Gmlist)
+
+# 计算方差
+EUUH.list = EUUHfunc(t,x.tilde,Gmlist)
+varALL = varALLfunc(t,x.tilde,Gmlist,EUUH.list)
+Vm.list = varALL$Vm.list
+H.stat = (unlist(Hmlist)-EHlist)/abs(Vm.list^0.5)
+plot(H.stat,type = "o",cex = 0.3)
+```
+
+<!-- 用于5000次仿真计算 -->
+<!-- ARL 计算 -->
+```{r}
+source("E:\\zhangwei\\Rprogram\\In profile monitoring\\basic functions for data generate.R")
+source("E:\\zhangwei\\Rprogram\\In profile monitoring\\basic funcitons for 1 covariate with LPK and ewma.R")
+library(MASS)
+
+epsilon4 = 3; h = 0.1; lambda = 0.1
+time = seq(0,1,by = 1)
+
+library(parallel)
+library(doParallel)
+library(foreach)
+no_cores = detectCores()
+registerDoParallel(makeCluster(no_cores))
+
+Nouter = 100
+Ninner = 20
+
+Resultlist = c()
+Q = c(1:900)
+time = seq(0,1000,by = 1)
+
+for (s in 1:Nouter) {
+  start.time = proc.time()
+  Result = foreach(1:Ninner, .combine = rbind,.packages = c("MASS")) %dopar% {
+    Result = vector("list")
+    # 产生数据
+    datalist = ICdata.model1(rate = 1,N = 1,tc.end = 1000) 
+    t = datalist$tlist[[1]][Q]
+    z = datalist$ylist[[1]][Q]
+    x = datalist$xlist[[1]][Q]
+    # 数据独立变换
+    t = round(as.numeric(t),0);time = round(time,0)
+    id = match(t,time)
+    # 去除含有固定效应的项，使z变为y
+    y = z - x * coef.fixed[id]
+    # y的协方差矩阵
+    # r.matsub = diag(diag(r.mat[id,id]))
+    r.matsub = r.mat[id,id]
+    y.sigma.sqrt = diag(x) %*% r.matsub %*% t(diag(x)) + diag(sig.sq, nrow(r.matsub))
+    lamda.eig <- ginv(eigen(y.sigma.sqrt)$vectors)%*%y.sigma.sqrt%*%(eigen(y.sigma.sqrt)$vectors)
+    lambda.sqrt = abs(diag(sqrt(diag(lamda.eig))))
+    B = (eigen(y.sigma.sqrt)$vectors)%*%lambda.sqrt%*%solve(eigen(y.sigma.sqrt)$vectors)
+    A = solve(B)
+    # 独立正态变换
+    y.tilde = A %*% y
+    x.tilde = A %*% x
+    ni = length(y.tilde)
+    # acf(y.tilde); acf(y)
+    # t = data.tilde$t
+
+    # 估计t时刻的偏移函数delta
+    delta.m = delta.func(t,x.tilde,y.tilde)
+    # 拟合效果
+    y.tilde.fit = x.tilde*delta.m
+    # 统计量的迭代计算
+    Hmstat = HmstatFunc(t,x.tilde,y.tilde)
+    Hmlist = Hmstat$Hmlist
+    # 统计量的期望
+    Gmlist = Hmstat$Gmlist
+    EHlist = EHfunc(t,x.tilde,Gmlist)
+    # 计算方差
+    EUUH.list = EUUHfunc(t,x.tilde,Gmlist)
+    varALL = varALLfunc(t,x.tilde,Gmlist,EUUH.list)
+    Vm.list = varALL$Vm.list
+    # 统计量的标准化
+    Hmstat = (unlist(Hmlist)-EHlist)/abs(Vm.list)^0.5
+    # plot(Hmstat,type = "o",cex = 0.3)
+    Result = rbind(unlist(Hmlist),EHlist,Hmstat,t[1:length(Hmstat)])
+  }
+  Resultlist = c(Resultlist,Result)
+  write.table(Result,"E:\\zhangwei\\Rprogram\\In profile monitoring\\busbar ARL data\\ATS0_Lambda01_model1_Zhang.csv",append = TRUE,row.names=FALSE,col.names=FALSE,sep=",")
+  end.time = proc.time()
+  run.time = (end.time-start.time)/60
+  print(s)
+  print(run.time)
+}
+stopImplicitCluster()
+```
+
+<!-- 汇总统计量数据 -->
+```{r}
+Resultlist =(read.csv("E:\\zhangwei\\Rprogram\\In profile monitoring\\busbar ARL data\\ATS0_Lambda01_model1_Zhang.csv",header=F,encoding = "UTF-8"))
+Resultlist = as.matrix(Resultlist[,Q])
+
+Resultlist.H =  Resultlist.Hstat = Resultlist.t = c()
+N = nrow(Resultlist)/4; N1 = seq(1,4*N,by=4)
+j = 1
+for (i in N1) {
+  Resultlist.H = rbind(Resultlist.H, Resultlist[i,])
+  Hstat = abs((Resultlist[i,] - Resultlist[i+1,])/(abs(Resultlist[i+2,]))^0.5)
+  Resultlist.Hstat = rbind(Resultlist.Hstat, Hstat) 
+  Resultlist.t = rbind(Resultlist.t, Resultlist[i+3,])
+  j = j + 1
+}
+
+```
+
+<!-- ARL计算 -->
+```{r}
+# 归一化统计量
+LRTstat = abs(as.matrix(Resultlist.Hstat[,-(1:30)]))
+# # 原始统计量
+# LRTstat = abs(as.matrix(Resultlist.H[,-(1:30)]))
+
+LRTstat = as.matrix(LRTstat)
+dimnames(LRTstat)[[2]] = c()
+nrows = dim(LRTstat)[1];ncols = dim(LRTstat)[2]
+
+plot(LRTstat[1,],type = "o",cex = 0.5)
+temp = LRTstat[1,]
+Ulist <- quantile(temp,c(1,0.9))
+hu = Ulist[1];hl = Ulist[2]
+
+ARL0 = 200
+iter = 1
+epsilon = 100
+ARLlist = c()
+while(epsilon>1){
+  h = (hu+hl)/2
+  RLlist = c()
+  for (i in 1:nrows) {
+    # i = 5
+    index = which(LRTstat[i,]>h)
+    if (length(index)==0) {
+      RL = ncols
+    }
+    if (length(index)!=0) {
+      RL = index[1]
+    }
+    RLlist = c(RLlist,RL)
+  }
+  ARL = mean(RLlist)
+  ARLlist = c(ARLlist,ARL)
+  if (ARL>ARL0) {
+    hu = h
+  }
+  if (ARL<ARL0) {
+    hl = h
+  }
+  epsilon = abs(ARL-ARL0)
+}
+
+max(RLlist)
+sd(RLlist)
+h
+
+quantile(RLlist,c(0.1,0.5,0.9))
+RL_FAR = RLlist[which(RLlist<30)]
+round(length(RL_FAR)/length(RLlist),4)
+
+RLlist = c()
+for (i in 1:(nrows)) {
+  index = which(LRTstat[i,]>h)
+  if (length(index)==0) {
+    RL = ncols
+  }
+  if (length(index)!=0) {
+    RL = index[1]
+  }
+  RLlist = c(RLlist,RL)
+}
+round(mean(RLlist),3)
+round(sd(RLlist),3)
+```
+
+<!-- ATS的计算 -->
+```{r}
+# 计算ATS所需的数据
+LRTstat = as.matrix(Resultlist.Hstat[,-(1:30)])
+LRT.t = as.matrix(Resultlist.t[,-(1:30)])
+LRTstat = as.matrix(LRTstat)
+LRT.t = as.matrix(LRT.t)
+
+dimnames(LRTstat)[[2]] = c()
+nrows = dim(LRTstat)[1];ncols = dim(LRTstat)[2]
+
+plot(LRTstat[1,],type = "o",cex = 0.5)
+temp = LRTstat[1,]
+Ulist <- quantile(temp,c(0.999,0.6))
+hu = Ulist[1];hl = Ulist[2]
+
+# ATS=200时的h
+ATS0 = 200
+iter = 1
+epsilon = 100
+ATSlist = c()
+while(epsilon>1){
+  h = (hu+hl)/2
+  RLlist = c()
+  for (i in 1:nrows) {
+    # i = 5
+    index = which(LRTstat[i,]>h)
+    if (length(index)==0) {
+      RL = LRT.t[i,ncols]
+    }
+    if (length(index)!=0) {
+      RL = LRT.t[i,index[1]]
+    }
+    RLlist = c(RLlist,RL)
+  }
+  ATS = mean(RLlist)
+  ATSlist = c(ATSlist,ATS)
+  if (ATS>ATS0) {
+    hu = h
+  }
+  if (ATS<ATS0) {
+    hl = h
+  }
+  epsilon = abs(ATS-ATS0)
+}
+# ATS的最大值、标准差、控制限和分位数
+max(RLlist)
+sd(RLlist)
+h
+quantile(RLlist,c(0.1,0.5,0.9))
+# FAR
+RL_FAR = RLlist[which(RLlist<30)]
+round(length(RL_FAR)/length(RLlist),4)
+
+
+# h下的ATS0
+RLlist = c()
+for (i in 1:(nrows)) {
+  index = which(LRTstat[i,]>h)
+  if (length(index)==0) {
+    RL = LRT.t[i,ncols]
+  }
+  if (length(index)!=0) {
+    RL = LRT.t[i,index[1]]
+  }
+  RLlist = c(RLlist,RL)
+}
+round(mean(RLlist),3)
+# ATS0的标准差
+round(sd(RLlist),3)
+```

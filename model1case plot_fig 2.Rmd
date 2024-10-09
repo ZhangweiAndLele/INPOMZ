@@ -1,0 +1,246 @@
+
+```{r}
+library(reshape2)
+library(ggplot2)
+library(patchwork)
+theme_set(theme_bw())
+
+```
+
+<!-- # mean function:case1 -->
+```{r}
+ni = 200; tc.end = 200
+t = seq(0,tc.end,length=ni)
+n = length(t)
+x = sin(0.01*pi*t)
+beta = (1+t)^0.3
+y = beta*x
+
+# shift
+tao = round(n/2,0)
+delta = c(3.0,6.0,9.0)
+beta1 = c(beta[1:tao],(delta[1]+1)*beta[(tao+1):n])
+beta2 = c(beta[1:tao],(delta[2]+1)*beta[(tao+1):n])
+beta3 = c(beta[1:tao],(delta[3]+1)*beta[(tao+1):n])
+
+y1 = beta1*x
+y2 = beta2*x
+y3 = beta3*x
+
+model1.data = data.frame(beta = beta,
+                           t = t,
+                           x = x,
+                           beta = beta,
+                           y = y
+                         )
+model1.beta = data.frame(t = t,
+                          beta = beta,
+                          beta1 = beta1,
+                           beta2 = beta2,
+                           beta3 = beta3
+                         )
+model1.y = data.frame(t = t,
+                          y = y,
+                          y1 = y1,
+                          y2 = y2,
+                          y3 = y3
+                         )
+
+
+```
+
+<!-- # plot:case1 -->
+```{r}
+windowsFonts()
+
+case1.beta.plot = ggplot(model1.beta, aes(x = t)) +
+  geom_line(aes(y = beta3, color = 'delta3'), lwd=0.45,linetype = "dashed") +
+  geom_line(aes(y = beta, color = 'delta'), lwd=0.455) +
+  scale_color_manual('', values=c('black','red'),labels=c("δ=0","δ=9.0")) +
+  labs(title = "Case(1): shift in beta(t)", x = '', y = '')+
+  theme(plot.title = element_text(size = 12,hjust = 0.5))+ 
+  theme(legend.position = c(0.1,0.7))+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), plot.margin = margin(t = 0.5, r = 0.5, b = 0.5, l = 0.5, unit = "cm"))+
+  scale_fill_discrete(labels=c("0", "1", "2","3")) + 
+  theme(legend.key.size = unit(10,"point")) +
+  theme(text = element_text(size = 20, family="sans",face = "bold",colour = "black")) 
+case1.beta.plot
+
+case1.y.plot = ggplot(model1.y, aes(x = t)) +
+  geom_line(aes(y = y3, color = 'delta3'), lwd=0.45,linetype = "dashed") +
+  geom_line(aes(y = y, color = 'delta'), lwd=0.455) +
+  scale_color_manual('', values=c('black','red'),labels=c("δ=0","δ=9.0")) +
+  labs(title = "Case(1):shift in z(t)", x = '', y = '')+
+  theme(plot.title = element_text(size = 12,hjust = 0.5))+ 
+  theme(legend.position = c(0.1,0.3))+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), plot.margin = margin(t = 0.5, r = 0.5, b = 0.5, l = 0.5, unit = "cm"))+
+  scale_fill_discrete(labels=c("0", "1", "2","3"))+ # 图例名称
+  theme(legend.key.size = unit(10,"point")) +
+  theme(text = element_text(size = 20, family="sans",face = "bold",colour = "black")) 
+case1.y.plot
+```
+
+<!-- # mean function:case2 -->
+```{r}
+ni = 200; tc.end = 200
+t = seq(0,tc.end,length=ni)
+n = length(t)
+x = sin(0.01*pi*t)
+beta = (1+t)^0.3
+y = beta*x
+
+# Quadratic drift
+tao = round(n/2,0)
+beta1 = beta2 = beta3 = beta
+delta = c(3.0,6.0,9.0)
+beta1[(tao+1):n] = delta[1]*((t[(tao+1):n]-t[tao+1])/50)^2 + beta1[(tao+1):n]
+beta2[(tao+1):n] = delta[2]*((t[(tao+1):n]-t[tao+1])/50)^2 + beta2[(tao+1):n]
+beta3[(tao+1):n] = delta[3]*((t[(tao+1):n]-t[tao+1])/50)^2 + beta3[(tao+1):n]
+
+y1 = beta1*x
+y2 = beta2*x
+y3 = beta3*x
+
+model1.data = data.frame(beta = beta,
+                           t = t,
+                           x = x,
+                           beta = beta,
+                           y = y
+                         )
+model1.beta = data.frame(t = t,
+                          beta = beta,
+                          beta1 = beta1,
+                           beta2 = beta2,
+                           beta3 = beta3
+                         )
+model1.y = data.frame(t = t,
+                          y = y,
+                          y1 = y1,
+                          y2 = y2,
+                          y3 = y3
+                         )
+
+```
+
+<!-- # plot:case2 -->
+```{r}
+windowsFonts(A=windowsFont("Times New Roman"),B = windowsFont("Arial"))
+
+case2.beta.plot = ggplot(model1.beta, aes(x = t)) +
+
+  geom_line(aes(y = beta3, color = 'delta3'), lwd=0.45,linetype = "dashed") +
+  geom_line(aes(y = beta, color = 'delta'), lwd=0.455) +
+  scale_color_manual('', values=c('black','red'),labels=c("δ=0","δ=9.0")) +
+  labs(title = "Case(2): drift in beta(t)", x = '', y = '')+
+  theme(plot.title = element_text(size = 12,hjust = 0.5))+ 
+  theme(legend.position = c(0.1,0.7))+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), plot.margin = margin(t = 0.5, r = 0.5, b = 0.5, l = 0.5, unit = "cm"))+
+  scale_fill_discrete(labels=c("0", "1", "2","3")) + 
+  theme(legend.key.size = unit(10,"point")) +
+  theme(text = element_text(size = 14, family="sans",face = "bold",colour = "black")) 
+case2.beta.plot
+
+case2.y.plot = ggplot(model1.y, aes(x = t)) +
+  
+  
+  geom_line(aes(y = y3, color = 'delta3'), lwd=0.45,linetype = "dashed") +
+  geom_line(aes(y = y, color = 'delta'), lwd=0.455) +
+  scale_color_manual('', values=c('black','red'),labels=c("δ=0","δ=9.0")) +
+  labs(title = "Case(2):drift in z(t)", x = '', y = '')+
+  theme(plot.title = element_text(size = 12,hjust = 0.5))+ 
+  theme(legend.position = c(0.1,0.3))+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), plot.margin = margin(t = 0.5, r = 0.5, b = 0.5, l = 0.5, unit = "cm"))+
+  scale_fill_discrete(labels=c("0", "1", "2","3"))+ 
+  theme(legend.key.size = unit(10,"point")) +
+  theme(text = element_text(size = 14, family="sans",face = "bold",colour = "black")) 
+case2.y.plot
+```
+
+<!-- # mean function:case3 -->
+```{r}
+ni = 200; tc.end = 200
+t = seq(0,tc.end,length=ni)
+n = length(t)
+x = sin(0.01*pi*t)
+beta = (1+t)^0.3
+y = beta*x
+
+# Quadratic drift
+tao = round(n/2,0)
+beta1 = beta2 = beta3 = beta
+delta = c(3.0,6.0,9.0)
+beta1[(tao+1):n] = delta[1]*sin((t[(tao+1):n]-t[tao+1])*0.1*pi) + beta1[(tao+1):n]
+beta2[(tao+1):n] = delta[2]*sin((t[(tao+1):n]-t[tao+1])*0.1*pi) + beta2[(tao+1):n]
+beta3[(tao+1):n] = delta[3]*sin((t[(tao+1):n]-t[tao+1])*0.1*pi) + beta3[(tao+1):n]
+
+y1 = beta1*x
+y2 = beta2*x
+y3 = beta3*x
+
+model1.data = data.frame(beta = beta,
+                           t = t,
+                           x = x,
+                           beta = beta,
+                           y = y
+                         )
+model1.beta = data.frame(t = t,
+                          beta = beta,
+                          beta1 = beta1,
+                           beta2 = beta2,
+                           beta3 = beta3
+                         )
+model1.y = data.frame(t = t,
+                          y = y,
+                          y1 = y1,
+                          y2 = y2,
+                          y3 = y3
+                         )
+
+```
+
+<!-- # plot:case3 -->
+```{r}
+windowsFonts()
+
+case3.beta.plot = ggplot(model1.beta, aes(x = t)) +
+  geom_line(aes(y = beta3, color = 'delta3'), lwd=0.45,linetype = "dashed") +
+  geom_line(aes(y = beta, color = 'delta'), lwd=0.455) +
+  scale_color_manual('', values=c('black','red'),labels=c("δ=0","δ=9.0")) +
+  labs(title = "Case(3): oscillation in beta(t)", x = '', y = '')+
+  theme(plot.title = element_text(size = 12,hjust = 0.5))+ 
+  theme(legend.position = c(0.1,0.7))+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), plot.margin = margin(t = 0.5, r = 0.5, b = 0.5, l = 0.5, unit = "cm"))+
+  scale_fill_discrete(labels=c("0", "1", "2","3")) + 
+  theme(legend.key.size = unit(10,"point")) +
+  theme(text = element_text(size = 14, family="sans",face = "bold",colour = "black")) 
+case3.beta.plot
+
+case3.y.plot = ggplot(model1.y, aes(x = t)) +
+  
+  
+  geom_line(aes(y = y3, color = 'delta3'), lwd=0.45,linetype = "dashed") +
+  geom_line(aes(y = y, color = 'delta'), lwd=0.455) +
+  scale_color_manual('', values=c('black','red'),labels=c("δ=0","δ=9.0")) +
+  labs(title = "Case(3):oscillation in z(t)", x = '', y = '')+
+  theme(plot.title = element_text(size = 12,hjust = 0.5))+ 
+  theme(legend.position = c(0.1,0.3))+
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(), plot.margin = margin(t = 0.5, r = 0.5, b = 0.5, l = 0.5, unit = "cm"))+
+  scale_fill_discrete(labels=c("0", "1", "2","3"))+ # 图例名称
+  theme(legend.key.size = unit(10,"point")) +
+  theme(text = element_text(size = 14, family="sans",face = "bold",colour = "black")) 
+case3.y.plot
+```
+
+```{r}
+library(patchwork)
+p = (case1.beta.plot|case1.y.plot)/
+  (case2.beta.plot|case2.y.plot)/
+  (case3.beta.plot|case3.y.plot)+
+  plot_annotation(title="Model Ⅰ",tag_levels = "a",tag_prefix="(",tag_suffix=")")&
+  theme(plot.tag.position = c(0.5,0),plot.title = element_text(size = 18))&
+  theme(text=element_text(size=18))
+p
+```
+
+
+

@@ -1,0 +1,101 @@
+
+```{r}
+library(reshape2)#融合数据
+library(ggplot2)
+library(patchwork)
+theme_set(theme_bw())
+```
+
+<!-- 载入数据 -->
+```{r}
+load("INPOMZ_2OCbusbar.RData")
+INPOMZ.OC1 = INPOMZ_2OCbusbar[[1]]
+INPOMZ.OC2 = INPOMZ_2OCbusbar[[2]]
+INPOMZ.OC3 = INPOMZ_2OCbusbar[[3]]
+nilist = c(196,157,139)
+```
+
+
+```{r}
+OC1.plot = ggplot(INPOMZ.OC1) +
+  geom_line(aes(x = id, y = y),colour = "black") +
+  scale_x_continuous(limits = c(0,196),breaks = c(0,30,60,90,120,150,180,196))+
+  geom_point(aes(x = id,y = yhat),colour = "black", size = 0.5, alpha = 0.5 ) +
+  labs(title = "OC observations of standardization", x = 'time point', y = '℃')+
+  theme(plot.title = element_text(size = 10,hjust = 0.5))+ # 标题居中
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(text = element_text(size = 18, family="sans",face = "bold",colour = "black")) # 改变图中所有字体
+OC1.plot
+
+OC2.plot = ggplot(INPOMZ.OC2) +
+  geom_line(aes(x = id, y = y),colour = "black") +
+  scale_x_continuous(limits = c(0,157),breaks = c(0,30,60,90,120,157))+
+  geom_point(aes(x = id,y = yhat),colour = "black", size = 0.5, alpha = 0.5 ) +
+  labs(title = "OC observations of standardization", x = 'time point', y = '℃')+
+  theme(plot.title = element_text(size = 10,hjust = 0.5))+ # 标题居中
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(text = element_text(size = 18, family="sans",face = "bold",colour = "black")) # 改变图中所有字体
+OC2.plot
+
+OC3.plot = ggplot(INPOMZ.OC3) +
+  geom_line(aes(x = id, y = y),colour = "black") +
+  scale_x_continuous(limits = c(0,139),breaks = c(0,30,60,90,139))+
+  geom_point(aes(x = id,y = yhat),colour = "black", size = 0.5, alpha = 0.5 ) +
+  labs(title = "OC observations of standardization", x = 'time point', y = '℃')+
+  theme(plot.title = element_text(size = 10,hjust = 0.5))+ # 标题居中
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(text = element_text(size = 18, family="sans",face = "bold",colour = "black")) # 改变图中所有字体
+OC3.plot
+```
+
+
+```{r}
+INPOMZ.OC1.plot = ggplot(INPOMZ.OC1, aes(x = id,y = stat)) +
+  geom_line() +geom_point(size = 0.5)+
+  scale_x_continuous(limits = c(0,196),breaks = c(0,30,60,90,120,150,180,196))+
+  geom_hline(yintercept = 5.13,linetype = "dotted")+
+  scale_y_continuous(breaks = c(0,3,5.13,6,9))+
+  labs(title = "Charting Statistics of INPOMZ",x="time point", y="statistics")+
+  theme(plot.title = element_text(size = 10,hjust = 0.5))+ # 标题居中
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(text = element_text(size = 18, family="sans",face = "bold",colour = "black")) # 改变图中所有字体
+INPOMZ.OC1.plot
+
+INPOMZ.OC2.plot = ggplot(INPOMZ.OC2, aes(x = id,y = stat)) +
+  geom_line() +geom_point(size = 0.5)+
+  scale_x_continuous(limits = c(0,157),breaks = c(0,30,60,90,120,157))+
+  geom_hline(yintercept = 5.13,linetype = "dotted")+
+  scale_y_continuous(breaks = c(0,3,5.13,6,9))+
+  labs(title = "Charting Statistics of INPOMZ",x="time point", y="statistics")+
+  theme(plot.title = element_text(size = 10,hjust = 0.5))+ # 标题居中
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(text = element_text(size = 18, family="sans",face = "bold",colour = "black")) # 改变图中所有字体
+INPOMZ.OC2.plot
+
+
+INPOMZ.OC3.plot = ggplot(INPOMZ.OC3, aes(x = id,y = stat)) +
+  geom_line() +geom_point(size = 0.5)+
+  scale_x_continuous(limits = c(0,139),breaks = c(0,30,60,90,139))+
+  geom_hline(yintercept = 5.13,linetype = "dotted")+
+  scale_y_continuous(breaks = c(0,3,5.13,6,9))+
+  labs(title = "Charting Statistics of INPOMZ",x="time point", y="statistics")+
+  theme(plot.title = element_text(size = 10,hjust = 0.5))+ # 标题居中
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank())+
+  theme(text = element_text(size = 18, family="sans",face = "bold",colour = "black")) # 改变图中所有字体
+INPOMZ.OC3.plot
+```
+
+
+```{r}
+library(patchwork)
+
+p = (OC1.plot|INPOMZ.OC1.plot)/
+  (OC2.plot|INPOMZ.OC2.plot)/
+  (OC3.plot|INPOMZ.OC3.plot)+
+  plot_annotation()&
+  theme(plot.tag.position = c(0.5,0),plot.title = element_text(size = 15))&
+  theme(text=element_text(size=15))
+p
+ggsave("INPOMZ monitoring 2OC profiles_IISE revised3.pdf",p,width =10,height = 10,dpi =1500)
+```
+
